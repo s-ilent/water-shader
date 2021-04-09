@@ -65,8 +65,8 @@ Shader "Water" {
 		Name "Base"
 		Tags{ "LightMode" = "ForwardBase" }
 		Blend SrcAlpha OneMinusSrcAlpha
-		Cull False
-		ZWrite True
+		Cull Off
+		ZWrite Off
 
 		CGPROGRAM
 		#pragma vertex vert
@@ -90,7 +90,7 @@ Shader "Water" {
 		#pragma exclude_renderers d3d11_9x 
 		#pragma target 3.0
 
-		uniform sampler2D _CameraDepthTexture;
+		UNITY_DECLARE_DEPTH_TEXTURE(_CameraDepthTexture);	
 		uniform sampler2D _HeightTexture;
 		uniform sampler2D _NormalTexture;
 		uniform sampler2D _FoamTexture;
@@ -220,9 +220,23 @@ Shader "Water" {
 			o.projPos = ComputeScreenPos(o.pos);
 			o.normal = normal;
 
+			o.projPos.z = -mul(UNITY_MATRIX_V, float4(o.worldPos, 1.0)).z;
+
 			UNITY_TRANSFER_FOG(o, o.pos);
 
 			return o;
+		}
+
+		void farDepthReverseFix(inout float bgDepth)
+		{
+			#if UNITY_REVERSED_Z
+				if (bgDepth == 0)
+			#else
+				if (bgDepth == 1)
+			#endif
+				bgDepth = 0.0;
+				//bgDepth = IsInMirror();
+				//bgDepth = (bgDepth);
 		}
 
 		float4 frag(VertexOutput fs_in, float facing : VFACE) : COLOR
@@ -234,6 +248,8 @@ Shader "Water" {
 			float3 eyeDir = normalize(_WorldSpaceCameraPos.xyz - fs_in.worldPos);
 			float3 surfacePosition = fs_in.worldPos;
 			half3 lightColor = _LightColor0.rgb;
+
+			half3 indirectColor = float3(unity_SHAr.w, unity_SHAg.w, unity_SHAb.w);
 
 			//wave normal
 #ifdef USE_DISPLACEMENT
@@ -247,7 +263,10 @@ Shader "Water" {
 
 			// compute refracted color
 			float depth = tex2Dproj(_CameraDepthTexture, UNITY_PROJ_COORD(fs_in.projPos.xyww));
-			float3 depthPosition = NdcToWorldPos(_ViewProjectInverse, float3(ndcPos, depth));
+    		float sceneZ = LinearEyeDepth(SAMPLE_DEPTH_TEXTURE_PROJ(_CameraDepthTexture, UNITY_PROJ_COORD(fs_in.projPos)));
+    		farDepthReverseFix(sceneZ);
+			//float3 depthPosition = NdcToWorldPos(_ViewProjectInverse, float3(ndcPos, depth));
+			float3 depthPosition = -1 * (sceneZ * (_WorldSpaceCameraPos.xyz - fs_in.worldPos) / fs_in.projPos.z - _WorldSpaceCameraPos.xyz);
 			float waterDepth = surfacePosition.y - depthPosition.y; // horizontal water depth
 			float viewWaterDepth = length(surfacePosition - depthPosition); // water depth from the view direction(water accumulation)
 			float2 dudv = ndcPos;
@@ -276,18 +295,21 @@ Shader "Water" {
 
 			// compute sky's reflected radiance
 #ifdef USE_MEAN_SKY_RADIANCE
-			half3 reflectColor = fresnel * MeanSkyRadiance(_SkyTexture, eyeDir, normal) * _RadianceFactor;
+			//half3 reflectColor = fresnel * MeanSkyRadiance(_SkyTexture, eyeDir, normal) * _RadianceFactor;
+			half3 reflectColor = fresnel * MeanSkyRadiance(UNITY_PASS_TEXCUBE(unity_SpecCube0), eyeDir, normal) * _RadianceFactor;
 #else
 			half3 reflectColor = 0;
 #endif // #ifndef USE_MEAN_SKY_RADIANCE
 
 			// compute reflected color
 			dudv = ndcPos + _Distortion * normal.xz;
+/*
 #ifdef USE_FILTERING
 			reflectColor += tex2DBicubic(_ReflectionTexture, _ReflectionTexture_TexelSize.z, dudv).rgb;
 #else
 			reflectColor += tex2D(_ReflectionTexture, dudv).rgb;
 #endif // #ifdef USE_FILTERING
+*/
 
 			// shore foam
 #ifdef USE_FOAM
@@ -302,7 +324,7 @@ Shader "Water" {
 
 			half  shoreFade = saturate(waterDepth * _ShoreFade);
 			// ambient + diffuse
-			half3 ambientColor = UNITY_LIGHTMODEL_AMBIENT.rgb * _AmbientDensity + saturate(dot(normal, lightDir)) * _DiffuseDensity;
+			half3 ambientColor = indirectColor.rgb * _AmbientDensity + saturate(dot(normal, lightDir)) * _DiffuseDensity;
 			// refraction color with depth based color
 			pureRefractionColor = lerp(pureRefractionColor, reflectColor, fresnel * saturate(waterDepth / (_FoamRanges.x * 0.4)));
 			pureRefractionColor = lerp(pureRefractionColor, _ShoreColor, 0.30 * shoreFade);
@@ -322,5 +344,4 @@ Shader "Water" {
 		}
 		}
 			CustomEditor "WaterShaderGUI"
-			FallBack "Diffuse"
 }

@@ -11,7 +11,7 @@ half FresnelValue(float2 refractionValues, float3 normal, float3 eyeVec)
 	// This value modifies current fresnel term. If you want to weaken
 	// reflections use bigger value.
 	float refractionStrength = refractionValues.y;
-#ifdef SIMPLIFIED_FRESNEL
+#if SIMPLIFIED_FRESNEL
 	return R0 + (1.0f - R0) * pow(1.0f - dot(eyeVec, normal), 5.0f);
 #else		
 	float angle = 1.0f - saturate(dot(normal, eyeVec));
@@ -27,7 +27,7 @@ half3 ReflectedRadiance(float shininess, half3 specularValues, half3 lightColor,
 {
 	float shininessExp = specularValues.z;
 
-#ifdef BLINN_PHONG
+#if BLINN_PHONG
 	// a variant of the blinn phong shading
 	float specularIntensity = specularValues.x * 0.0075;
 

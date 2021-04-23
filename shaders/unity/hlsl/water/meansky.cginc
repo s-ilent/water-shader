@@ -4,7 +4,7 @@
 // based on Real-time Realistic Ocean Lighting using Seamless Transitions from Geometry to BRDF by Eric Bruneton
 //
 
-#ifdef USE_MEAN_SKY_RADIANCE
+#if USE_MEAN_SKY_RADIANCE
 
 // V, N, Tx, Ty in world space
 float2 U(float2 zeta, float3 V, float3 N, float3 Tx, float3 Ty)
@@ -56,6 +56,25 @@ half3 MeanSkyRadiance(UNITY_ARGS_TEXCUBE(tex), float3 viewDir, half3 normal)
 	float2 dux = 2.0 * (float2(eps, 0.0) - u0) / eps;
 	float2 duy = 2.0 * (float2(0, eps) - u0) / eps;
 	return UNITY_SAMPLE_TEXCUBE_LOD(tex, u0, 0).rgb;
+}
+
+// Variant that uses the Unity GI
+half3 MeanSkyRadiance(UnityGIInput gi, half3 normal)
+{
+	Unity_GlossyEnvironmentData ge = (Unity_GlossyEnvironmentData) 0;
+	if (dot(gi.worldViewDir, normal) < 0.0)
+	{
+		normal = reflect(normal, gi.worldViewDir);
+	}
+	float3 ty = normalize(float3(0.0, normal.z, -normal.y));
+	float3 tx = cross(ty, normal);
+
+	const float eps = 0.001;
+	float3 u0 = U3(float2(0, 0), gi.worldViewDir, normal, tx, ty);
+	float2 dux = 2.0 * (float2(eps, 0.0) - u0) / eps;
+	float2 duy = 2.0 * (float2(0, eps) - u0) / eps;
+	ge.reflUVW = u0;
+	return UnityGI_IndirectSpecular(gi, 1.0, ge);
 }
 
 #endif // #ifdef USE_MEAN_SKY_RADIANCE

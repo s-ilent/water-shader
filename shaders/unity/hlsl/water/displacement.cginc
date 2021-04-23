@@ -33,7 +33,7 @@ half3 ComputeNormal(sampler2D normalTexture, float2 worldPos, float2 texCoord,
 		texCoord * 0.3 + timedWindDir * 0.008 + wavesNoise.w };
 
 	half3 wavesNormal = half3(0, 1, 0);
-#ifdef USE_DISPLACEMENT
+#if USE_DISPLACEMENT
 	normal = normalize(normal);
 	tangent = normalize(tangent);
 	bitangent = normalize(bitangent);
@@ -52,7 +52,7 @@ half3 ComputeNormal(sampler2D normalTexture, float2 worldPos, float2 texCoord,
 	return wavesNormal;
 }
 
-#ifdef USE_DISPLACEMENT
+#if USE_DISPLACEMENT
 float ComputeNoiseHeight(sampler2D heightTexture, float4 wavesIntensity, float4 wavesNoise, float2 texCoord, float2 noise, float2 timedWindDir)
 {
 	AdjustWavesValues(noise, wavesNoise, wavesIntensity);

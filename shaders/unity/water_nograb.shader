@@ -1,5 +1,5 @@
 ﻿
-Shader "Water" {
+Shader "Water (no grabpass)" {
 	Properties{
 		[Header(Features)]
 		[Toggle(_PARALLAXMAP)] _UseDisplacement("Displacement", Float) = 0
@@ -41,19 +41,17 @@ Shader "Water" {
 		_SpecularValues("Specular Intensity", Vector) = (12, 768, 0.15)
 		_Distortion("Distortion", Range(0, 0.15)) = 0.05
 		_RadianceFactor("Radiance Factor", Range(0, 1.0)) = 1.0
-		_EdgeFade("Reflection Edge Fade", Range(0,1)) = 0.1
 		[HideInInspector]_ReflectionTexture("Reflection Texture", 2D) = "white" {}
 
 		[Header(Foam settings)]
-		[NoScaleOffset]_FoamTexture("Foam Texture", 2D) = "black" {}
-		[NoScaleOffset]_ShoreTexture("Shore Texture", 2D) = "black" {}
+		[NoScaleOffset]_FoamTexture("Foam Texture", 2D) = "white" {}
+		[NoScaleOffset]_ShoreTexture("Shore Texture", 2D) = "white" {}
 		_FoamTiling("Foam Tiling", Vector) = (2.0, 0.5, 0.0)
 		_FoamRanges("Foam Ranges", Vector) = (2.0, 3.0, 100.0)
 		_FoamNoise("Foam Noise", Vector) = (0.1, 0.3, 0.1, 0.3)
 		_FoamSpeed("Foam Speed", Float) = 10
 		_FoamIntensity("Foam Intensity", Range(0, 1)) = 0.5
 		_ShoreFade("Shore Fade",  Range(0.1, 3)) = 0.3
-		[HideInInspector][NonModifiableTextureData]_NoiseTexSSR("SSR Noise Texture", 2D) = "black" {}
 	}
 		SubShader{
 		Tags{
@@ -61,11 +59,10 @@ Shader "Water" {
 		"Queue" = "Transparent"
 		"RenderType" = "Transparent"
 		}
-		GrabPass{ "_RefractionTexture" }
 		Pass{
 		Name "Base"
 		Tags{ "LightMode" = "ForwardBase" }
-		Blend SrcAlpha OneMinusSrcAlpha
+		Blend One OneMinusSrcAlpha
 		Cull Off
 		ZWrite Off
 
@@ -88,7 +85,7 @@ Shader "Water" {
 		#define USE_DISPLACEMENT defined(_PARALLAXMAP)
 		#define USE_FOAM defined(FXAA)
 		#define BLINN_PHONG defined(BLOOM)
-
+		
 		#include "UnityCG.cginc"
 
 		#include "UnityLightingCommon.cginc"
@@ -111,11 +108,6 @@ Shader "Water" {
 		uniform sampler2D _NormalTexture;
 		uniform sampler2D _FoamTexture;
 		uniform sampler2D _ShoreTexture;
-		uniform sampler2D _RefractionTexture; uniform float4 _RefractionTexture_TexelSize;
-
-		uniform sampler2D _NoiseTexSSR; uniform float4 _NoiseTexSSR_TexelSize;
-
-		uniform float4x4 _ViewProjectInverse;
 
 		uniform float4 _TimeEditor;
 		uniform float _AmbientDensity;
@@ -123,7 +115,6 @@ Shader "Water" {
 		uniform float _HeightIntensity;
 		uniform float _NormalIntensity;
 		uniform float _TextureTiling;
-		uniform float _EdgeFade;
 
 		//uniform float4 _LightColor0;
 		uniform float3 _SurfaceColor;
@@ -170,8 +161,6 @@ Shader "Water" {
 		uniform float _FoamSpeed;
 		uniform float _FoamIntensity;
 		uniform float _ShoreFade;
-		
-		#include "ssr.cginc"
 
 		inline void InitialiseUnityGI(out UnityGIInput d, half3 worldPos, half3 eyeVec) 
 		{
@@ -274,18 +263,17 @@ Shader "Water" {
 			o.pos = UnityObjectToClipPos(modelPos);
 			o.uvPackData.z = dot(o.pos,CalculateFrustumCorrection());
 
-        #if defined(UNITY_REVERSED_Z)
-        // when using reversed-Z, make the Z be just a tiny
-        // bit above 0.0
-        //o.pos.z = 1.0e-9f;
-        o.pos.z = max(o.pos.z, 1.0e-8f);
-        #else
-        // when not using reversed-Z, make Z/W be just a tiny
-        // bit below 1.0
-        //o.pos.z = o.pos.w - 1.0e-6f;
-        o.pos.z = min(o.pos.z, o.pos.w - 1.0e-5f);
-        #endif
-
+        	#if defined(UNITY_REVERSED_Z)
+        	// when using reversed-Z, make the Z be just a tiny
+        	// bit above 0.0
+        	//o.pos.z = 1.0e-9f;
+        	o.pos.z = max(o.pos.z, 1.0e-9f);
+        	// when not using reversed-Z, make Z/W be just a tiny
+        	// bit below 1.0
+        	//o.pos.z = o.pos.w - 1.0e-6f;
+        	//o.pos.z = min(o.pos.z, o.pos.w - 1.0e-6f);
+        	#endif
+	
 			o.worldPos = worldPos;
 			o.projPos = ComputeScreenPos(o.pos);
 			o.normal = normal;
@@ -338,7 +326,6 @@ Shader "Water" {
 			float3 depthPosition = -facing * (sceneZ * (_WorldSpaceCameraPos.xyz - fs_in.worldPos) / fs_in.projPos.z - _WorldSpaceCameraPos.xyz);
 			float waterDepth = surfacePosition.y - depthPosition.y; // horizontal water depth
 			float viewWaterDepth = length(surfacePosition - depthPosition); // water depth from the view direction(water accumulation)
-			
 			float2 dudv = ndcPos;
 			{
 				// refraction based on water depth
@@ -346,18 +333,8 @@ Shader "Water" {
 				float2 delta = float2(sin(timer + 3.0f * abs(depthPosition.y)),
 									  sin(timer + 5.0f * abs(depthPosition.y)));
 				dudv += windDir * delta * refractionScale;
-				// compute refracted depth
-				float4 offset = float4(windDir * delta * refractionScale, 0, 0);
-				float depth = tex2Dproj(_CameraDepthTexture, UNITY_PROJ_COORD(fs_in.projPos.xyww + offset));
-    			float sceneZ = CorrectedLinearEyeDepth(
-    				SAMPLE_DEPTH_TEXTURE_PROJ(_CameraDepthTexture, UNITY_PROJ_COORD(fs_in.projPos + offset)),
-    				fs_in.uvPackData.z/fs_in.projPos.w );
-    			farDepthReverseFix(sceneZ);
-				depthPosition = -facing * (sceneZ * (_WorldSpaceCameraPos.xyz - fs_in.worldPos) / fs_in.projPos.z - _WorldSpaceCameraPos.xyz);
-				waterDepth = surfacePosition.y - depthPosition.y; // horizontal water depth
-				viewWaterDepth = length(surfacePosition - depthPosition); // water depth from the view direction(water accumulation)
 			}
-			half3 pureRefractionColor = tex2D(_RefractionTexture, dudv).rgb;
+			half3 pureRefractionColor = indirectColor;
 			{
 				// reverse existing applied fog for correct shore color
 				INVERSE_FOG_COLOR(fs_in.fogCoord, pureRefractionColor);
@@ -365,8 +342,9 @@ Shader "Water" {
 			float2 waterTransparency = float2(_WaterClarity, _WaterTransparency);
 			float2 waterDepthValues = float2(waterDepth, viewWaterDepth);
 			float shoreRange = max(_FoamRanges.x, _FoamRanges.y) * 2.0;
+			float depthExp = 0;
 			half3 refractionColor = DepthRefraction(waterTransparency, waterDepthValues, shoreRange, _HorizontalExtinction,
-													pureRefractionColor, _ShoreColor, _SurfaceColor, _DepthColor);
+													pureRefractionColor, _ShoreColor, _SurfaceColor, _DepthColor, depthExp);
 
 			// compute ligths's reflected radiance
 			float3 lightDir = normalize(_WorldSpaceLightPos0);
@@ -385,25 +363,6 @@ Shader "Water" {
 			// compute reflected color
 			dudv = ndcPos + _Distortion * normal.xz;
 
-			float2 screenUVs = 0;
-			float4 screenPos = 0;
-		#if USE_REFLECTION
-			screenUVs = fs_in.projPos.xy / (fs_in.projPos.w+0.0000000001);
-			#if UNITY_SINGLE_PASS_STEREO
-				screenUVs.x *= 2;
-			#endif
-			screenPos = fs_in.projPos;
-
-			half4 ssrCol = GetSSR(_RefractionTexture, _RefractionTexture_TexelSize, 
-				surfacePosition, eyeDir, reflect(-eyeDir, normal), normal, 
-				1.0,screenUVs, screenPos, _EdgeFade);
-			//ssrCol.rgb *= _SSRStrength;
-			specularColor *= (1-smoothstep(0, 0.1, ssrCol.a));
-			reflectColor *= (1-smoothstep(0, 0.1, ssrCol.a));
-			reflectColor = lerp(reflectColor, ssrCol.rgb, ssrCol.a);
-			//reflectColor += ssrCol.rgb;
-		#endif
-
 			// shore foam
 #if USE_FOAM
 			float maxAmplitude = max(max(_WaveAmplitude.x, _WaveAmplitude.y), _WaveAmplitude.z);
@@ -414,6 +373,10 @@ Shader "Water" {
 #else
 			half foam = 0;
 #endif // #ifdef USE_FOAM
+
+			half alpha = saturate(depthExp*10);
+			alpha = smoothstep(0, 1, alpha);
+			pureRefractionColor *= depthExp*0.001;
 
 			half  shoreFade = saturate(waterDepth * _ShoreFade);
 			// ambient + diffuse
@@ -431,7 +394,7 @@ Shader "Water" {
 			color.rgb = 0.5 + 2 * ambientColor + specularColor + clamp(dot(normal, lightDir), 0, 1) * 0.5;
 #endif
 
-			return float4(color, 1.0);
+			return float4(color, alpha);
 		}
 		ENDCG
 		}

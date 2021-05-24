@@ -106,7 +106,7 @@ Shader "Water" {
 
 		#pragma multi_compile_fog
 
-		UNITY_DECLARE_DEPTH_TEXTURE(_CameraDepthTexture);	
+		UNITY_DECLARE_DEPTH_TEXTURE(_CameraDepthTexture); float4 _CameraDepthTexture_TexelSize;
 		uniform sampler2D _HeightTexture;
 		uniform sampler2D _NormalTexture;
 		uniform sampler2D _FoamTexture;
@@ -306,6 +306,12 @@ Shader "Water" {
 			#endif
 				bgDepth = 0.0;
 		}
+		float2 AlignWithGrabTexel (float2 uv) 
+		{		
+			return
+				(floor(uv * _CameraDepthTexture_TexelSize.zw) + 0.5) *
+				abs(_CameraDepthTexture_TexelSize.xy);
+		}
 
 		float4 frag(VertexOutput fs_in, float facing : VFACE) : COLOR
 		{
@@ -336,28 +342,34 @@ Shader "Water" {
     			fs_in.uvPackData.z/fs_in.projPos.w );
     		farDepthReverseFix(sceneZ);
 			float3 depthPosition = -facing * (sceneZ * (_WorldSpaceCameraPos.xyz - fs_in.worldPos) / fs_in.projPos.z - _WorldSpaceCameraPos.xyz);
+
 			float waterDepth = surfacePosition.y - depthPosition.y; // horizontal water depth
 			float viewWaterDepth = length(surfacePosition - depthPosition); // water depth from the view direction(water accumulation)
 			
 			float2 dudv = ndcPos;
+			
+			// refraction based on water depth
+			float refractionScale = _RefractionScale * min(waterDepth+1.0f, 1.0f);
+			float2 delta = float2(sin(timer + 3.0f * abs(depthPosition.y)),
+								  sin(timer + 5.0f * abs(depthPosition.y)));
+			// Added / fs_in.projPos.w to dampen refraction at distances
+			dudv += windDir * delta * refractionScale * !IsInMirror() / fs_in.projPos.w;
+
+			// compute refracted depth
+			float4 offset = float4((windDir * delta * refractionScale * !IsInMirror() / fs_in.projPos.w), 0, 0);
+
+			half3 pureRefractionColor = tex2D(_RefractionTexture, AlignWithGrabTexel(dudv)).rgb;
 			{
-				// refraction based on water depth
-				float refractionScale = _RefractionScale * min(waterDepth, 1.0f);
-				float2 delta = float2(sin(timer + 3.0f * abs(depthPosition.y)),
-									  sin(timer + 5.0f * abs(depthPosition.y)));
-				dudv += windDir * delta * refractionScale;
-				// compute refracted depth
-				float4 offset = float4(windDir * delta * refractionScale, 0, 0);
-				float depth = tex2Dproj(_CameraDepthTexture, UNITY_PROJ_COORD(fs_in.projPos.xyww + offset));
-    			float sceneZ = CorrectedLinearEyeDepth(
-    				SAMPLE_DEPTH_TEXTURE_PROJ(_CameraDepthTexture, UNITY_PROJ_COORD(fs_in.projPos + offset)),
-    				fs_in.uvPackData.z/fs_in.projPos.w );
-    			farDepthReverseFix(sceneZ);
-				depthPosition = -facing * (sceneZ * (_WorldSpaceCameraPos.xyz - fs_in.worldPos) / fs_in.projPos.z - _WorldSpaceCameraPos.xyz);
-				waterDepth = surfacePosition.y - depthPosition.y; // horizontal water depth
-				viewWaterDepth = length(surfacePosition - depthPosition); // water depth from the view direction(water accumulation)
+				// recalculate waterDepth
+				float depth = SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, (fs_in.projPos.xy / fs_in.projPos.w)+offset);
+	    		float sceneZ = CorrectedLinearEyeDepth(depth,
+	    			fs_in.uvPackData.z/fs_in.projPos.w );
+	    		farDepthReverseFix(sceneZ);
+				float3 depthPosition = -facing * (sceneZ * (_WorldSpaceCameraPos.xyz - fs_in.worldPos) / fs_in.projPos.z - _WorldSpaceCameraPos.xyz);
+
+				waterDepth = surfacePosition.y - depthPosition.y; 
+				viewWaterDepth = length(surfacePosition - depthPosition); 
 			}
-			half3 pureRefractionColor = tex2D(_RefractionTexture, dudv).rgb;
 			{
 				// reverse existing applied fog for correct shore color
 				INVERSE_FOG_COLOR(fs_in.fogCoord, pureRefractionColor);

@@ -37,3 +37,7 @@ float3 yInverseLerp(float3 x, float3 y, float a)
 		return (y - x * (1 - a)) / a;
 	return y;
 }
+
+bool IsInMirror(){
+	return unity_CameraProjection[2][0] != 0.f || unity_CameraProjection[2][1] != 0.f;
+}

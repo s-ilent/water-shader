@@ -7,7 +7,7 @@
 
 #if USE_REFLECTION
 
-bool IsInMirror(){
+bool SSR_IsInMirror(){
 	return unity_CameraProjection[2][0] != 0.f || unity_CameraProjection[2][1] != 0.f;
 }
 
@@ -94,7 +94,7 @@ float4 GetSSR(sampler2D grabPass, float4 texelSize, const float3 wPos, const flo
 	
 	float FdotR = dot(faceNormal, rayDir.xyz);
 
-	if (IsInMirror() || FdotR < 0){
+	if (SSR_IsInMirror() || FdotR < 0){
 		return 0;
 	}
 	else {
